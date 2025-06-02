@@ -41,6 +41,17 @@ dependencies:
   shared_preferences: ^2.5.3
   mask_text_input_formatter: ^2.9.0
   timeago: ^3.7.1
+  provider: ^6.1.2
+  local_auth: ^2.3.0
+  google_maps_flutter: ^2.12.2
+  web_socket_channel: ^3.0.3
+  nfc_manager: ^4.0.2
+  image_picker: ^1.1.2
+  geolocator: ^14.0.1
+  connectivity_plus: ^6.1.4
+  cached_network_image: ^3.4.1
+  flutter_local_notifications: ^19.2.1
+  permission_handler: ^12.0.0+1
 
 dev_dependencies:
   flutter_test:

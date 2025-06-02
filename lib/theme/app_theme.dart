@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:math' as math;
 
 class AppTheme {
   // Ana renkler
@@ -197,6 +198,31 @@ class AppTheme {
         thickness: 1,
       ),
       iconTheme: const IconThemeData(color: Color(0xFFA0AEC0), size: 24),
+    );
+  }
+}
+
+// Renk tonu koyulaştırma uzantısı
+extension ColorExtension on Color {
+  Color darker(int percent) {
+    assert(1 <= percent && percent <= 100);
+    final value = 1 - percent / 100;
+    return Color.fromARGB(
+      alpha,
+      (red * value).round(),
+      (green * value).round(),
+      (blue * value).round(),
+    );
+  }
+
+  Color lighter(int percent) {
+    assert(1 <= percent && percent <= 100);
+    final value = 1 + percent / 100;
+    return Color.fromARGB(
+      alpha,
+      math.min(255, (red * value).round()),
+      math.min(255, (green * value).round()),
+      math.min(255, (blue * value).round()),
     );
   }
 }

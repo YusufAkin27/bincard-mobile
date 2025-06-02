@@ -10,6 +10,9 @@ class AppConstants {
   static const String walletButtonText = 'Cüzdan';
   static const String cardBalanceButtonText = 'Bakiye Sorgula';
   static const String savedCardsButtonText = 'Kayıtlı Kartlar';
+  static const String busRoutesButtonText = 'Otobüs Seferleri';
+  static const String busTrackingButtonText = 'Otobüs Takip';
+  static const String newsButtonText = 'Haberler';
 
   // Profil metinleri
   static const String nameLabel = 'İsim';
@@ -21,6 +24,8 @@ class AppConstants {
   static const String cardsLabel = 'Kartlarım';
   static const String transactionsLabel = 'İşlemler';
   static const String accountLabel = 'Hesabım';
+  static const String busLabel = 'Otobüsler';
+  static const String newsLabel = 'Haberler';
 
   // İşlem metinleri
   static const String loadBalanceText = 'Bakiye Yükle';

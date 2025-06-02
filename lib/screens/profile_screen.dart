@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../constants/app_constants.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -31,6 +32,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         actions: [
           IconButton(
+            icon: Icon(Icons.settings, color: AppTheme.primaryColor),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: Icon(Icons.edit, color: AppTheme.primaryColor),
             onPressed: () {
               // Profil düzenleme sayfasına yönlendir
@@ -56,7 +66,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _buildSectionTitle('Hesap Bilgileri'),
               _buildAccountInfo(),
               const SizedBox(height: 32),
-              _buildLogoutButton(),
+              Row(
+                children: [
+                  Expanded(child: _buildSettingsButton()),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildLogoutButton()),
+                ],
+              ),
             ],
           ),
         ),
@@ -309,6 +325,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 size: 16,
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsButton() {
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryColor.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SettingsScreen()),
+          );
+        },
+        icon: const Icon(Icons.settings),
+        label: const Text(
+          'Ayarlar',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTheme.primaryColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
         ),
       ),
     );

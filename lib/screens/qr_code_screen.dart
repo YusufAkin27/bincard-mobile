@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../constants/app_constants.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'dart:math' as math;
+import 'dart:async';
 
 class QRCodeScreen extends StatefulWidget {
   final bool isScanner;
@@ -11,7 +12,7 @@ class QRCodeScreen extends StatefulWidget {
 
   const QRCodeScreen({
     Key? key,
-    this.isScanner = false,
+    this.isScanner = true,
     this.cardNumber,
     this.cardName,
   }) : super(key: key);
@@ -25,9 +26,23 @@ class _QRCodeScreenState extends State<QRCodeScreen>
   late TabController _tabController;
   bool _flashOn = false;
   bool _isFrontCamera = false;
+  bool _isTorchOn = false;
+  bool _isScanning = true;
+  bool _showScanSuccess = false;
+  bool _showPaymentSuccess = false;
+  Timer? _scanningTimer;
+  Timer? _successTimer;
+  final double _scannerAreaSize = 250.0;
 
-  // QR kodunu temsil eden demo veri
-  final String _qrData = "CityCard://Payment/123456789";
+  // Simüle edilmiş QR kod sonucu
+  final Map<String, dynamic> _scanResult = {
+    'type': 'payment',
+    'cardNumber': '1234 5678 9012 3456',
+    'amount': 25.50,
+    'timestamp': DateTime.now().toString(),
+    'route': '11A - Merkez-Üniversite',
+    'isValid': true,
+  };
 
   // Kartlar listesi (aslında API'den gelecek)
   final List<Map<String, dynamic>> _cards = [
@@ -65,253 +80,347 @@ class _QRCodeScreenState extends State<QRCodeScreen>
         _selectedCardIndex = index;
       }
     }
+
+    if (widget.isScanner) {
+      _startScanning();
+    }
+  }
+
+  void _startScanning() {
+    // Gerçek uygulamada, QR kod tarayıcı kütüphanesi kullanılacak
+    // Burada simüle ediyoruz
+    _scanningTimer = Timer(const Duration(seconds: 3), () {
+      setState(() {
+        _isScanning = false;
+        _showScanSuccess = true;
+      });
+
+      _successTimer = Timer(const Duration(seconds: 2), () {
+        setState(() {
+          _showScanSuccess = false;
+          _showPaymentSuccess = true;
+        });
+      });
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _scanningTimer?.cancel();
+    _successTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
+      backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: AppTheme.primaryColor),
-          onPressed: () => Navigator.pop(context),
-        ),
+        iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
-          'QR Kod',
-          style: TextStyle(
-            color: AppTheme.textPrimaryColor,
-            fontWeight: FontWeight.bold,
-          ),
+          widget.isScanner ? 'QR Kod Tara' : 'Ödeme QR Kodu',
+          style: const TextStyle(color: Colors.white),
         ),
-        centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: AppTheme.primaryColor,
-          labelColor: AppTheme.primaryColor,
-          unselectedLabelColor: AppTheme.textSecondaryColor,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          tabs: const [Tab(text: 'QR TARA'), Tab(text: 'QR GÖSTER')],
-        ),
+        actions: [
+          if (widget.isScanner)
+            IconButton(
+              icon: Icon(_isTorchOn ? Icons.flash_off : Icons.flash_on),
+              onPressed: () {
+                setState(() {
+                  _isTorchOn = !_isTorchOn;
+                });
+              },
+            ),
+        ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildScannerTab(), _buildShowQRTab()],
-      ),
+      body: widget.isScanner ? _buildScanner() : _buildQRCode(),
     );
   }
 
-  Widget _buildScannerTab() {
-    return Column(
+  Widget _buildScanner() {
+    return Stack(
       children: [
-        Expanded(
-          child: Stack(
-            children: [
-              // QR tarayıcı alanı (kamera izni gerektirir)
-              Container(
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    color: Colors.black.withOpacity(0.8),
-                    child: Center(
-                      child: Container(
-                        width: 250,
-                        height: 250,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: AppTheme.primaryColor,
-                            width: 2,
-                          ),
-                        ),
-                        child: Stack(
-                          children: [
-                            // Köşe işaretleri
-                            Positioned(
-                              left: 0,
-                              top: 0,
-                              child: _buildCornerMarker(),
-                            ),
-                            Positioned(
-                              right: 0,
-                              top: 0,
-                              child: Transform.rotate(
-                                angle: math.pi / 2,
-                                child: _buildCornerMarker(),
-                              ),
-                            ),
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: Transform.rotate(
-                                angle: math.pi,
-                                child: _buildCornerMarker(),
-                              ),
-                            ),
-                            Positioned(
-                              left: 0,
-                              bottom: 0,
-                              child: Transform.rotate(
-                                angle: 3 * math.pi / 2,
-                                child: _buildCornerMarker(),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+        // Simüle edilmiş kamera görüntüsü - gerçek uygulamada kamera akışı olacak
+        Container(
+          width: double.infinity,
+          height: double.infinity,
+          color: Colors.black,
+          child: Center(
+            child: Text(
+              'Kamera Önizleme',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.3),
+                fontSize: 16,
               ),
-
-              // Tarama çizgisi animasyonu
-              Positioned.fill(
-                child: Center(
-                  child: SizedBox(
-                    width: 250,
-                    height: 250,
-                    child: Center(
-                      child: AnimatedContainer(
-                        duration: const Duration(seconds: 2),
-                        width: 220,
-                        height: 2,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryColor,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primaryColor.withOpacity(0.5),
-                              blurRadius: 5,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Kamera kontrolleri
-              Positioned(
-                bottom: 24,
-                right: 24,
-                child: Column(
-                  children: [
-                    _buildCameraControlButton(
-                      icon: _flashOn ? Icons.flash_on : Icons.flash_off,
-                      label: _flashOn ? 'Flaş Açık' : 'Flaş Kapalı',
-                      onTap: () {
-                        setState(() {
-                          _flashOn = !_flashOn;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    _buildCameraControlButton(
-                      icon:
-                          _isFrontCamera
-                              ? Icons.camera_front
-                              : Icons.camera_rear,
-                      label: _isFrontCamera ? 'Ön Kamera' : 'Arka Kamera',
-                      onTap: () {
-                        setState(() {
-                          _isFrontCamera = !_isFrontCamera;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: Colors.white,
-          child: Column(
-            children: [
-              Text(
-                'QR kodu tarayıcı kare içerisine yerleştirin',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textSecondaryColor,
+
+        // QR kod tarama alanı
+        Center(
+          child: Container(
+            width: _scannerAreaSize,
+            height: _scannerAreaSize,
+            decoration: BoxDecoration(
+              border: Border.all(color: AppTheme.primaryColor, width: 2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Stack(
+              children: [
+                // Köşe işaretleri
+                Positioned(top: 0, left: 0, child: _buildCorner()),
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: _buildCorner(topRight: true),
                 ),
-                textAlign: TextAlign.center,
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  child: _buildCorner(bottomLeft: true),
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: _buildCorner(bottomRight: true),
+                ),
+
+                // Tarama animasyonu
+                if (_isScanning) _buildScanAnimation(),
+              ],
+            ),
+          ),
+        ),
+
+        // Talimatlar
+        Positioned(
+          bottom: 80,
+          left: 0,
+          right: 0,
+          child: Text(
+            _isScanning
+                ? 'QR kodu çerçeve içine yerleştirin'
+                : _showScanSuccess
+                ? 'QR kod başarıyla okundu!'
+                : 'İşlem tamamlanıyor...',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              backgroundColor: Colors.black.withOpacity(0.5),
+            ),
+          ),
+        ),
+
+        // Başarılı tarama ekranı
+        if (_showScanSuccess)
+          Center(
+            child: Container(
+              width: _scannerAreaSize,
+              height: _scannerAreaSize,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 16),
-              Row(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        // Galeriden QR kod seçme işlevi
-                      },
-                      icon: const Icon(Icons.photo_library),
-                      label: const Text('Galeriden Seç'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                  Icon(
+                    Icons.check_circle,
+                    color: AppTheme.successColor,
+                    size: 80,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'QR Kod Okundu',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+
+        // Ödeme başarılı ekranı
+        if (_showPaymentSuccess) _buildPaymentSuccess(),
       ],
     );
   }
 
-  Widget _buildCornerMarker() {
-    return Container(
+  Widget _buildCorner({
+    bool topRight = false,
+    bool bottomLeft = false,
+    bool bottomRight = false,
+  }) {
+    return SizedBox(
       width: 20,
       height: 20,
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: AppTheme.primaryColor, width: 4),
-          left: BorderSide(color: AppTheme.primaryColor, width: 4),
+      child: CustomPaint(
+        painter: CornerPainter(
+          color: AppTheme.primaryColor,
+          topRight: topRight,
+          bottomLeft: bottomLeft,
+          bottomRight: bottomRight,
         ),
       ),
     );
   }
 
-  Widget _buildCameraControlButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.8),
-          borderRadius: BorderRadius.circular(12),
+  Widget _buildScanAnimation() {
+    return AnimatedPositioned(
+      duration: const Duration(seconds: 2),
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: _isScanning ? _scannerAreaSize - 4 : 0,
+      curve: Curves.easeInOut,
+      child: Container(height: 2, color: AppTheme.primaryColor),
+    );
+  }
+
+  Widget _buildPaymentSuccess() {
+    return Container(
+      color: Colors.black.withOpacity(0.8),
+      width: double.infinity,
+      height: double.infinity,
+      child: Center(
+        child: Card(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: 300,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.check_circle,
+                  color: AppTheme.successColor,
+                  size: 60,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Ödeme Başarılı',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 24),
+                _buildInfoRow('Tutar', '₺${_scanResult['amount']}'),
+                _buildInfoRow('Hat', _scanResult['route']),
+                _buildInfoRow(
+                  'Tarih',
+                  DateTime.now().toString().substring(0, 16),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Tamam'),
+                ),
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            '$label:',
+            style: TextStyle(fontSize: 14, color: AppTheme.textSecondaryColor),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQRCode() {
+    return Container(
+      color: Colors.white,
+      child: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: AppTheme.primaryColor),
-            const SizedBox(height: 4),
+            const Text(
+              'Ödeme için QR Kodu Okutun',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 30),
+            Container(
+              width: 250,
+              height: 250,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.qr_code_2,
+                  size: 200,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+            ),
+            const SizedBox(height: 30),
             Text(
-              label,
+              'Kart No: ${_scanResult['cardNumber']}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tutar: ₺${_scanResult['amount']}',
               style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textPrimaryColor,
+                fontSize: 14,
+                color: AppTheme.textSecondaryColor,
+              ),
+            ),
+            const SizedBox(height: 40),
+            ElevatedButton.icon(
+              onPressed: () {
+                // QR kodu yenile
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('QR Kodu Yenile'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
           ],
@@ -319,261 +428,60 @@ class _QRCodeScreenState extends State<QRCodeScreen>
       ),
     );
   }
+}
 
-  Widget _buildShowQRTab() {
-    return Column(
-      children: [
-        const SizedBox(height: 24),
-        Expanded(
-          child: Column(
-            children: [
-              _buildCardSelector(),
-              const SizedBox(height: 24),
-              _buildQRCodeDisplay(),
-              const SizedBox(height: 24),
-              _buildQRInfo(),
-            ],
-          ),
-        ),
-        _buildBottomActions(),
-      ],
-    );
+class CornerPainter extends CustomPainter {
+  final Color color;
+  final bool topRight;
+  final bool bottomLeft;
+  final bool bottomRight;
+
+  CornerPainter({
+    required this.color,
+    this.topRight = false,
+    this.bottomLeft = false,
+    this.bottomRight = false,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint =
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3;
+
+    final path = Path();
+
+    if (topRight) {
+      // Sağ üst köşe
+      path.moveTo(size.width, 0);
+      path.lineTo(size.width, size.height / 2);
+      path.moveTo(size.width, 0);
+      path.lineTo(size.width / 2, 0);
+    } else if (bottomLeft) {
+      // Sol alt köşe
+      path.moveTo(0, size.height);
+      path.lineTo(0, size.height / 2);
+      path.moveTo(0, size.height);
+      path.lineTo(size.width / 2, size.height);
+    } else if (bottomRight) {
+      // Sağ alt köşe
+      path.moveTo(size.width, size.height);
+      path.lineTo(size.width, size.height / 2);
+      path.moveTo(size.width, size.height);
+      path.lineTo(size.width / 2, size.height);
+    } else {
+      // Sol üst köşe (varsayılan)
+      path.moveTo(0, 0);
+      path.lineTo(0, size.height / 2);
+      path.moveTo(0, 0);
+      path.lineTo(size.width / 2, 0);
+    }
+
+    canvas.drawPath(path, paint);
   }
 
-  Widget _buildCardSelector() {
-    return Container(
-      height: 48,
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _cards.length,
-        itemBuilder: (context, index) {
-          final card = _cards[index];
-          final isSelected = index == _selectedCardIndex;
-
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                _selectedCardIndex = index;
-              });
-            },
-            child: Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                gradient:
-                    isSelected
-                        ? LinearGradient(
-                          colors: card['color'],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        )
-                        : null,
-                color: isSelected ? null : Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Row(
-                  children: [
-                    Icon(
-                      FontAwesomeIcons.creditCard,
-                      size: 16,
-                      color:
-                          isSelected
-                              ? Colors.white
-                              : AppTheme.textSecondaryColor,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      card['name'],
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color:
-                            isSelected
-                                ? Colors.white
-                                : AppTheme.textPrimaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildQRCodeDisplay() {
-    final selectedCard = _cards[_selectedCardIndex];
-    return Column(
-      children: [
-        Text(
-          'Kartınızın QR Kodu',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: AppTheme.textPrimaryColor,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          width: 250,
-          height: 250,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Center(
-                  child: Image.asset(
-                    'assets/images/qr_code_placeholder.png',
-                    width: 200,
-                    height: 200,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                selectedCard['number'],
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textSecondaryColor,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildQRInfo() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.primaryColor.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.1)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.info_outline,
-                  color: AppTheme.primaryColor,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Bu QR kodu ödeme yapmak veya kart bakiyenizi göstermek için kullanabilirsiniz.',
-                  style: TextStyle(
-                    color: AppTheme.textSecondaryColor,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.privacy_tip_outlined,
-                  color: AppTheme.primaryColor,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'QR kodunuzu güvenliğiniz için sadece işlem yapacağınız zaman gösterin.',
-                  style: TextStyle(
-                    color: AppTheme.textSecondaryColor,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomActions() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.white,
-      child: Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () {
-                // QR kodu paylaşma işlevi
-              },
-              icon: const Icon(Icons.share),
-              label: const Text('QR Kodu Paylaş'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: IconButton(
-              onPressed: () {
-                // QR kodu yenileme işlevi
-              },
-              icon: Icon(Icons.refresh, color: AppTheme.primaryColor),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  @override
+  bool shouldRepaint(CornerPainter oldDelegate) => false;
 }

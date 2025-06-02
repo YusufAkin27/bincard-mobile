@@ -1,13 +1,11 @@
-package com.example.city_card
+package com.example.city_card.city_card
 
-import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugins.GeneratedPluginRegistrant
 import android.os.Bundle
 import android.nfc.NfcAdapter
 import android.nfc.NfcManager
-import android.content.pm.PackageManager
 import android.app.PendingIntent
 import android.content.Intent
 
