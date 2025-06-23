@@ -46,11 +46,14 @@ android {
 
 dependencies {
     // Desugaring bağımlılığı
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     // MultiDex desteği
     implementation("androidx.multidex:multidex:2.0.1")
     // Biyometrik kimlik doğrulama için destek
     implementation("androidx.biometric:biometric:1.1.0")
+    // Core bağımlılıklarını uyumlu sürümlere düşür
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.core:core:1.12.0")
 }
 
 flutter {

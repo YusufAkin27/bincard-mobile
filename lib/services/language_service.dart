@@ -61,4 +61,13 @@ class LanguageService extends ChangeNotifier {
         return const Locale('tr', 'TR');
     }
   }
+
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    
+    await _loadSettings();
+    
+    _isInitialized = true;
+    notifyListeners();
+  }
 }

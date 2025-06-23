@@ -69,4 +69,17 @@ class ThemeService extends ChangeNotifier {
   }
 
   ThemeMode get themeMode => _isDarkMode ? ThemeMode.dark : ThemeMode.light;
+
+  // Tema servisini başlatmak için public metod
+  Future<void> initialize() async {
+    // Eğer zaten başlatılmışsa, işlem yapma
+    if (_isInitialized) return;
+    
+    // Ayarları yükle
+    await _loadSettings();
+    
+    // Başlatıldı olarak işaretle
+    _isInitialized = true;
+    notifyListeners();
+  }
 }

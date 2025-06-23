@@ -30,11 +30,19 @@ import 'screens/report_problem_screen.dart';
 
 // Kimlik doğrulama ekranları
 import 'screens/auth/login_screen.dart';
+import 'screens/auth/register_screen.dart';
+import 'screens/auth/forgot_password_screen.dart';
+import 'screens/auth/verification_screen.dart';
+import 'screens/auth/reset_password_screen.dart';
 
 class AppRoutes {
   // Route isimleri
   static const String home = '/';
   static const String login = '/login';
+  static const String register = '/register';
+  static const String forgotPassword = '/forgot-password';
+  static const String verification = '/verification';
+  static const String resetPassword = '/reset-password';
   static const String profile = '/profile';
   static const String wallet = '/wallet';
   static const String addBalance = '/add-balance';
@@ -60,6 +68,8 @@ class AppRoutes {
   static final routes = <String, WidgetBuilder>{
     home: (context) => const HomeScreen(),
     login: (context) => const LoginScreen(),
+    register: (context) => const RegisterScreen(),
+    forgotPassword: (context) => const ForgotPasswordScreen(),
     profile: (context) => const ProfileScreen(),
     wallet: (context) => const WalletScreen(),
     addBalance: (context) => const AddBalanceScreen(),
@@ -81,6 +91,21 @@ class AppRoutes {
   // Parametre gerektiren route'lar için generate metodu
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
+      case verification:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return MaterialPageRoute(
+          builder: (context) => VerificationScreen(
+            phoneNumber: args?['phoneNumber'] as String? ?? '',
+            isPasswordReset: args?['isPasswordReset'] as bool? ?? false,
+          ),
+        );
+      case resetPassword:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return MaterialPageRoute(
+          builder: (context) => ResetPasswordScreen(
+            phoneNumber: args?['phoneNumber'] as String? ?? '',
+          ),
+        );
       case qrCode:
         final args = settings.arguments as Map<String, dynamic>?;
         final isScanner = args?['isScanner'] as bool? ?? false;

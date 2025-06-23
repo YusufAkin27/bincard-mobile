@@ -5,6 +5,12 @@ import '../constants/app_constants.dart';
 import '../services/theme_service.dart';
 import '../services/language_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'change_password_screen.dart';
+import 'edit_profile_screen.dart';
+import 'privacy_settings_screen.dart';
+import 'terms_of_service_screen.dart';
+import 'privacy_policy_screen.dart';
+import '../services/biometric_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -16,20 +22,59 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isNotificationsEnabled = true;
   bool _isBiometricEnabled = false;
+  bool _isBiometricAvailable = false;
   double _textScale = 0.5;
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
+    _loadSettings();
     _loadNotificationSettings();
+    _loadBiometricSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    // ThemeService'ten ayarları yükle
+    try {
+      // Provider'ı initState içinde kullanmak için
+      // Provider.of yerine Future.microtask kullanıyoruz
+      Future.microtask(() {
+        final themeService = Provider.of<ThemeService>(context, listen: false);
+        setState(() {
+          // 0.8 - 1.2 aralığını 0.0 - 1.0 aralığına dönüştür
+          _textScale = (themeService.textScale - 0.8) / 0.4;
+          if (_textScale < 0) _textScale = 0;
+          if (_textScale > 1) _textScale = 1;
+        });
+      });
+    } catch (e) {
+      debugPrint('Ayarlar yüklenirken hata: $e');
+    }
   }
 
   Future<void> _loadNotificationSettings() async {
     // Bildirim ayarlarını yükleme
     setState(() {
       _isNotificationsEnabled = true; // Varsayılan değer
-      _isBiometricEnabled = false; // Varsayılan değer
     });
+  }
+
+  Future<void> _loadBiometricSettings() async {
+    try {
+      final biometricService = BiometricService();
+      final isAvailable = await biometricService.canAuthenticate();
+      final isEnabled = await biometricService.isBiometricEnabled();
+      
+      if (mounted) {
+        setState(() {
+          _isBiometricAvailable = isAvailable;
+          _isBiometricEnabled = isEnabled;
+        });
+      }
+    } catch (e) {
+      debugPrint('Biyometrik ayarları yüklenirken hata: $e');
+    }
   }
 
   Future<void> _toggleNotifications(bool value) async {
@@ -41,13 +86,108 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleBiometric(bool value) async {
     setState(() {
-      _isBiometricEnabled = value;
+      _isLoading = true;
     });
-    // Biyometrik ayarını kaydet
+    
+    try {
+      final biometricService = BiometricService();
+      
+      if (value) {
+        // Biyometrik doğrulamayı aktifleştir
+        if (!_isBiometricAvailable) {
+          _showBiometricNotAvailableDialog();
+          setState(() {
+            _isLoading = false;
+            _isBiometricEnabled = false;
+          });
+          return;
+        }
+        
+        // Biyometrik doğrulama için kullanıcıdan izin iste
+        final authenticated = await biometricService.authenticate(
+          reason: 'Biyometrik kimlik doğrulamayı aktifleştirmek için doğrulama yapın',
+          description: 'Bu, uygulamaya girişte biyometrik kimlik doğrulamasını aktifleştirecektir',
+        );
+        
+        if (authenticated) {
+          await biometricService.enableBiometricAuthentication();
+          setState(() {
+            _isBiometricEnabled = true;
+          });
+          
+          // Kullanıcıya başarılı mesajı göster
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Biyometrik kimlik doğrulama aktifleştirildi'),
+                backgroundColor: AppTheme.successColor,
+              ),
+            );
+          }
+        } else {
+          setState(() {
+            _isBiometricEnabled = false;
+          });
+        }
+      } else {
+        // Biyometrik doğrulamayı devre dışı bırak
+        await biometricService.disableBiometricAuthentication();
+        setState(() {
+          _isBiometricEnabled = false;
+        });
+        
+        // Kullanıcıya bilgi mesajı göster
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Biyometrik kimlik doğrulama devre dışı bırakıldı'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Biyometrik ayarı değiştirirken hata: $e');
+      
+      // Hata mesajı göster
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Biyometrik ayarı değiştirilemedi: $e'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showBiometricNotAvailableDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Biyometrik Doğrulama Mevcut Değil'),
+        content: const Text(
+          'Cihazınızda biyometrik doğrulama (parmak izi, yüz tanıma) mevcut değil veya henüz kurulmamış. Lütfen cihaz ayarlarınızı kontrol edin.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Null-safety kontrolü ile servisleri al
     final themeService = Provider.of<ThemeService>(context);
     final languageService = Provider.of<LanguageService>(context);
 
@@ -139,10 +279,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSliderItem(
             icon: Icons.text_fields,
             title: 'Yazı Boyutu',
-            value: themeService.textScale * 0.5, // Ölçek için dönüşüm
+            value: _textScale,
             onChanged: (value) {
-              double actualScale =
-                  0.8 + (value * 0.4); // 0.8 ile 1.2 arasında ölçek
+              double actualScale = 0.8 + (value * 0.4);
               themeService.setTextScale(actualScale);
               setState(() {
                 _textScale = value;
@@ -228,7 +367,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSwitchItem(
             icon: Icons.fingerprint,
             title: 'Biyometrik Kimlik Doğrulama',
+            subtitle: _isBiometricAvailable 
+                ? 'Uygulama girişinde parmak izi veya yüz tanıma kullanın'
+                : 'Bu cihazda biyometrik kimlik doğrulama mevcut değil',
             value: _isBiometricEnabled,
+            enabled: _isBiometricAvailable,
             onChanged: _toggleBiometric,
           ),
           const Divider(),
@@ -238,15 +381,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             hasArrow: true,
             onTap: () {
               // Şifre değiştirme sayfasına yönlendir
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ChangePasswordScreen(),
+                ),
+              );
             },
           ),
           const Divider(),
           _buildInfoItem(
-            icon: Icons.privacy_tip,
+            icon: Icons.lock,
             title: 'Gizlilik Ayarları',
             hasArrow: true,
             onTap: () {
-              // Gizlilik ayarları sayfasına yönlendir
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PrivacySettingsScreen(),
+                ),
+              );
             },
           ),
         ],
@@ -269,26 +423,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
       child: Column(
-        children:
-            languageService.availableLanguages.map((language) {
-              return Column(
-                children: [
-                  _buildRadioItem(
-                    icon: Icons.language,
-                    title: language,
-                    value: language,
-                    groupValue: languageService.selectedLanguage,
-                    onChanged: (value) {
-                      if (value != null) {
-                        languageService.setLanguage(value);
-                      }
-                    },
-                  ),
-                  if (language != languageService.availableLanguages.last)
-                    const Divider(),
-                ],
-              );
-            }).toList(),
+        children: [
+          for (final language in languageService.availableLanguages)
+            _buildRadioItem(
+              icon: language == 'Türkçe' ? Icons.flag : Icons.language,
+              title: language,
+              value: language,
+              groupValue: languageService.selectedLanguage,
+              onChanged: (value) {
+                if (value != null) {
+                  languageService.setLanguage(value);
+                }
+              },
+            ),
+        ],
       ),
     );
   }
@@ -321,6 +469,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             hasArrow: true,
             onTap: () {
               // Kullanım koşulları sayfasına yönlendir
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TermsOfServiceScreen(),
+                ),
+              );
             },
           ),
           const Divider(),
@@ -330,6 +484,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             hasArrow: true,
             onTap: () {
               // Gizlilik politikası sayfasına yönlendir
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PrivacyPolicyScreen(),
+                ),
+              );
             },
           ),
         ],
@@ -340,38 +500,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSwitchItem({
     required IconData icon,
     required String title,
+    String? subtitle,
     required bool value,
-    required ValueChanged<bool> onChanged,
+    bool enabled = true,
+    required Function(bool) onChanged,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: AppTheme.primaryColor, size: 20),
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.5,
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textPrimaryColor,
-              ),
-            ),
+          child: Icon(icon, color: AppTheme.primaryColor, size: 24),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textPrimaryColor,
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: AppTheme.primaryColor,
-          ),
-        ],
+        ),
+        subtitle: subtitle != null
+            ? Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.textSecondaryColor,
+                ),
+              )
+            : null,
+        trailing: Switch(
+          value: value,
+          onChanged: enabled ? onChanged : null,
+          activeColor: AppTheme.primaryColor,
+        ),
       ),
     );
   }

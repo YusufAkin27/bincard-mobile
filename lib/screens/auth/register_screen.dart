@@ -5,6 +5,7 @@ import '../../services/auth_service.dart';
 import '../../models/auth_model.dart';
 import 'login_screen.dart';
 import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
+import 'verification_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -124,13 +125,13 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
           );
 
-          // Giriş sayfasına yönlendir
+          // Doğrulama sayfasına yönlendir
           Navigator.pushReplacement(
             context,
             PageRouteBuilder(
               pageBuilder:
                   (context, animation, secondaryAnimation) =>
-                      const LoginScreen(),
+                      VerificationScreen(phoneNumber: phoneNumber),
               transitionsBuilder: (
                 context,
                 animation,

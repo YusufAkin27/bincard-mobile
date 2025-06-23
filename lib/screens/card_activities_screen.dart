@@ -8,7 +8,7 @@ class CardActivitiesScreen extends StatefulWidget {
   final String cardName;
   final List<Color> cardColor;
 
-  const CardActivitiesScreen({
+  CardActivitiesScreen({
     Key? key,
     required this.cardNumber,
     required this.cardName,

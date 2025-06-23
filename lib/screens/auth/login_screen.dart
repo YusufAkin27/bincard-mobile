@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
+import '../../services/biometric_service.dart';
 import '../../models/auth_model.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import '../../screens/home_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
+import '../../services/secure_storage_service.dart';
+
+// SharedPreferences anahtarlarını sabit olarak tanımlayalım
+const String kSavedPhoneKey = 'saved_phone';
+const String kRememberMeKey = 'remember_me';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -22,7 +28,12 @@ class _LoginScreenState extends State<LoginScreen>
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
+  final _biometricService = BiometricService();
+  
+  // SharedPreferences örneğini bir kere oluşturup saklayalım
+  SharedPreferences? _prefs;
 
+  // Animasyon kontrolcüsü
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -36,59 +47,161 @@ class _LoginScreenState extends State<LoginScreen>
   bool _obscurePassword = true;
   bool _rememberMe = false;
   bool _isLoading = false;
+  bool _canUseBiometrics = false;
   String _errorMessage = '';
+  bool _isInitialized = false;
+  bool _hasRefreshToken = false;  // Refresh token var mı?
+  int _biometricAttempts = 0;     // Biyometrik deneme sayısı
+  final int _maxBiometricAttempts = 3; // Maksimum deneme hakkı
 
   @override
   void initState() {
     super.initState();
 
-    // Önce animasyon controller'ı oluştur
+    // Animasyon kontrolcüsünü oluştur - süreyi kısaltalım
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 500), // Süreyi azalttık
     );
 
-    // Sonra animasyonları tanımla
+    // Animasyonları tanımla
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.2),
+      begin: const Offset(0, 0.1), // Daha az hareket
       end: Offset.zero,
     ).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
 
-    // Animasyonu başlat
-    _animationController.forward();
-
-    // Kayıtlı kullanıcı bilgilerini yükle
-    _loadSavedCredentials();
+    // Başlangıç işlemlerini asenkron olarak başlat
+    _initializeAsync();
+  }
+  
+  // Tüm başlangıç işlemlerini tek bir asenkron metotta toplayalım
+  Future<void> _initializeAsync() async {
+    try {
+      // SharedPreferences örneğini bir kere oluştur
+      _prefs = await SharedPreferences.getInstance();
+      
+      // Kayıtlı bilgileri yükle
+      _loadSavedCredentials();
+      
+      // Refresh token kontrolü yap
+      await _checkRefreshToken();
+      
+      // Mevcut oturumu kontrol et
+      await _checkExistingSession();
+      
+      // Biyometrik doğrulama kontrolü
+      await _checkBiometricAvailability();
+      
+      // Animasyonu başlat
+      if (mounted) {
+        _animationController.forward();
+        setState(() {
+          _isInitialized = true;
+        });
+      }
+      
+      // Eğer refresh token ve biyometrik giriş aktifse, otomatik biyometrik giriş için hazırlık yap
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _prepareAutoBiometricLogin();
+      });
+    } catch (e) {
+      debugPrint('Başlangıç hatası: $e');
+    }
   }
 
-  Future<void> _loadSavedCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedPhone = prefs.getString('saved_phone');
-    final savedRememberMe = prefs.getBool('remember_me');
+  void _loadSavedCredentials() {
+    if (_prefs == null) return;
+    
+    final savedPhone = _prefs!.getString(kSavedPhoneKey);
+    final savedRememberMe = _prefs!.getBool(kRememberMeKey);
 
-    if (savedRememberMe == true && savedPhone != null) {
+    if (savedRememberMe == true && savedPhone != null && mounted) {
       setState(() {
         _phoneController.text = savedPhone;
+        // Telefon numarasını mask formatına uygun şekilde ayarla
+        phoneMaskFormatter.formatEditUpdate(
+          TextEditingValue.empty, 
+          TextEditingValue(text: savedPhone)
+        );
         _rememberMe = true;
       });
     }
   }
 
   Future<void> _saveCredentials() async {
+    if (_prefs == null) return;
+    
     if (_rememberMe) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('saved_phone', _phoneController.text);
-      await prefs.setBool('remember_me', true);
+      // Telefon numarasını masksız olarak kaydet
+      final phoneNumber = phoneMaskFormatter.getUnmaskedText();
+      await _prefs!.setString(kSavedPhoneKey, phoneNumber);
+      await _prefs!.setBool(kRememberMeKey, true);
     } else {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('saved_phone');
-      await prefs.setBool('remember_me', false);
+      await _prefs!.remove(kSavedPhoneKey);
+      await _prefs!.setBool(kRememberMeKey, false);
+    }
+  }
+  
+  Future<void> _checkExistingSession() async {
+    try {
+      final isLoggedIn = await _authService.isLoggedIn();
+      
+      if (isLoggedIn && mounted) {
+        // Kullanıcı zaten giriş yapmış, ana sayfaya yönlendir
+        _navigateToHome();
+      }
+    } catch (e) {
+      debugPrint('Oturum kontrolü hatası: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+  
+  Future<void> _checkBiometricAvailability() async {
+    try {
+      final biometricService = BiometricService();
+      
+      // Biyometrik kimlik doğrulama kullanılabilir mi?
+      final isAvailable = await biometricService.isBiometricAvailable();
+      
+      // Biyometrik kimlik doğrulama etkinleştirilmiş mi?
+      final isEnabled = await biometricService.isBiometricEnabled();
+      
+      if (mounted) {
+        setState(() {
+          _canUseBiometrics = isAvailable && isEnabled;
+        });
+      }
+      
+      debugPrint('Biyometrik doğrulama kullanılabilir: $isAvailable, etkin: $isEnabled');
+    } catch (e) {
+      debugPrint('Biyometrik kontrol hatası: $e');
+    }
+  }
+
+  // Refresh token kontrolü
+  Future<void> _checkRefreshToken() async {
+    try {
+      final secureStorage = SecureStorageService();
+      final refreshToken = await secureStorage.getRefreshToken();
+      if (refreshToken != null) {
+        debugPrint('Kayıtlı refresh token bulundu');
+        setState(() {
+          _hasRefreshToken = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Refresh token kontrolü hatası: $e');
     }
   }
 
@@ -125,40 +238,18 @@ class _LoginScreenState extends State<LoginScreen>
         await _saveCredentials();
 
         // Auth servisi ile giriş yapma
+        debugPrint('Giriş işlemi başlatılıyor. Telefon: $phoneNumber');
         final response = await _authService.login(phoneNumber, password);
+        debugPrint('Giriş yanıtı alındı: başarılı=${response.success}, mesaj=${response.message}');
 
         if (response.success) {
           // Başarılı giriş - ana sayfaya yönlendir
+          debugPrint('Giriş başarılı, ana sayfaya yönlendiriliyor...');
           if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            PageRouteBuilder(
-              pageBuilder:
-                  (context, animation, secondaryAnimation) =>
-                      const HomeScreen(),
-              transitionsBuilder: (
-                context,
-                animation,
-                secondaryAnimation,
-                child,
-              ) {
-                const begin = Offset(1.0, 0.0);
-                const end = Offset.zero;
-                const curve = Curves.easeInOut;
-
-                var tween = Tween(
-                  begin: begin,
-                  end: end,
-                ).chain(CurveTween(curve: curve));
-                var offsetAnimation = animation.drive(tween);
-
-                return SlideTransition(position: offsetAnimation, child: child);
-              },
-              transitionDuration: const Duration(milliseconds: 300),
-            ),
-          );
+          _navigateToHome();
         } else {
           // Hata durumu
+          debugPrint('Giriş başarısız: ${response.message}');
           setState(() {
             _errorMessage =
                 response.message ??
@@ -166,6 +257,7 @@ class _LoginScreenState extends State<LoginScreen>
           });
         }
       } catch (e) {
+        debugPrint('Giriş sırasında hata: $e');
         setState(() {
           _errorMessage = 'Beklenmeyen bir hata oluştu: $e';
         });
@@ -178,10 +270,93 @@ class _LoginScreenState extends State<LoginScreen>
       }
     }
   }
+  
+  Future<void> _loginWithBiometrics() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+    
+    try {
+      debugPrint('Biyometrik giriş başlatılıyor...');
+      final success = await _authService.loginWithBiometrics();
+      
+      if (success) {
+        debugPrint('Biyometrik giriş başarılı, ana sayfaya yönlendiriliyor...');
+        if (!mounted) return;
+        _navigateToHome();
+      } else {
+        debugPrint('Biyometrik giriş başarısız');
+        setState(() {
+          _biometricAttempts++;
+          _errorMessage = 'Biyometrik doğrulama başarısız oldu. Kalan deneme: ${_maxBiometricAttempts - _biometricAttempts}';
+        });
+        
+        // Maksimum deneme sayısına ulaşıldıysa, manuel giriş isteği göster
+        if (_biometricAttempts >= _maxBiometricAttempts) {
+          setState(() {
+            _errorMessage = 'Maksimum deneme sayısına ulaşıldı. Lütfen telefon numarası ve şifre ile giriş yapın.';
+          });
+        } else {
+          // Henüz deneme hakkı varsa, kısa bir süre sonra tekrar dene
+          if (mounted) {
+            Future.delayed(const Duration(seconds: 1), () {
+              if (_biometricAttempts < _maxBiometricAttempts && mounted) {
+                _showBiometricPrompt();
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Biyometrik giriş hatası: $e');
+      setState(() {
+        _biometricAttempts++;
+        _errorMessage = 'Biyometrik doğrulama hatası: $e';
+      });
+      
+      // Maksimum deneme sayısına ulaşıldıysa, manuel giriş isteği göster
+      if (_biometricAttempts >= _maxBiometricAttempts && mounted) {
+        setState(() {
+          _errorMessage = 'Maksimum deneme sayısına ulaşıldı. Lütfen telefon numarası ve şifre ile giriş yapın.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+  
+  void _navigateToHome() {
+    debugPrint('_navigateToHome metodu çağrıldı');
+    // Daha güvenli yönlendirme işlemi
+    if (mounted) {
+      // Tüm yığını temizleyerek ana sayfaya yönlendir
+      debugPrint('Ana sayfaya yönlendiriliyor...');
+      Future.delayed(Duration.zero, () {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          (route) => false, // Tüm yığını temizle
+        );
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Ekran boyutunu bir kez al
     final size = MediaQuery.of(context).size;
+
+    // Önbelleğe alma işlemi için precacheImage kullan
+    precacheImage(const AssetImage('assets/images/logo.png'), context);
+    
+    // Refresh token varsa ve biyometrik giriş aktifse otomatik olarak biyometrik giriş başlat
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndStartBiometricLogin();
+    });
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
@@ -208,33 +383,41 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
 
-          // Ana içerik
+          // Ana içerik - Animasyonu sadece ilk yüklemede göster
           SafeArea(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildHeader(),
-                          const SizedBox(height: 30),
-                          _buildLoginCard(),
-                        ],
-                      ),
-                    ),
+            child: _isInitialized 
+              ? FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: SlideTransition(
+                    position: _slideAnimation,
+                    child: _buildMainContent(),
                   ),
+                )
+              : const Center(
+                  child: CircularProgressIndicator(),
                 ),
-              ),
-            ),
           ),
         ],
+      ),
+    );
+  }
+  
+  Widget _buildMainContent() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: 30),
+              _buildLoginCard(),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -278,27 +461,25 @@ class _LoginScreenState extends State<LoginScreen>
     return Column(
       children: [
         const SizedBox(height: 60),
-        Hero(
-          tag: 'app_logo',
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Icon(
-              Icons.credit_card,
-              size: 60,
-              color: AppTheme.primaryColor,
-            ),
+        // Hero animasyonunu kaldıralım, performans için
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                spreadRadius: 5,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Icon(
+            Icons.credit_card,
+            size: 60,
+            color: AppTheme.primaryColor,
           ),
         ),
         const SizedBox(height: 24),
@@ -352,21 +533,34 @@ class _LoginScreenState extends State<LoginScreen>
             style: TextStyle(fontSize: 14, color: AppTheme.textSecondaryColor),
           ),
           const SizedBox(height: 24),
-          _buildPhoneInput(),
-          const SizedBox(height: 16),
-          _buildPasswordInput(),
-          const SizedBox(height: 12),
-          _buildRememberForgotRow(),
-          if (_errorMessage.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _buildErrorMessage(),
-          ],
-          const SizedBox(height: 24),
-          _buildLoginButton(),
-          const SizedBox(height: 16),
-          _buildRegisterRow(),
+          _buildLoginForm(),
         ],
       ),
+    );
+  }
+
+  Widget _buildLoginForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!_hasRefreshToken) _buildPhoneInput(),
+        if (!_hasRefreshToken) const SizedBox(height: 16),
+        _buildPasswordInput(),
+        const SizedBox(height: 8),
+        _buildRememberMeForgotPassword(),
+        const SizedBox(height: 24),
+        if (_errorMessage.isNotEmpty) ...[
+          _buildErrorMessage(),
+          const SizedBox(height: 16),
+        ],
+        _buildLoginButton(),
+        if (_canUseBiometrics && _hasRefreshToken) ...[
+          const SizedBox(height: 16),
+          _buildBiometricLoginButton(),
+        ],
+        const SizedBox(height: 24),
+        _buildRegisterRow(),
+      ],
     );
   }
 
@@ -407,11 +601,18 @@ class _LoginScreenState extends State<LoginScreen>
         if (value == null || value.isEmpty) {
           return 'Lütfen telefon numaranızı girin';
         }
+        
+        // Maskelenmiş telefon numarası kontrolü
+        final unmaskedText = phoneMaskFormatter.getUnmaskedText();
+        if (unmaskedText.isEmpty) {
+          return 'Lütfen telefon numaranızı girin';
+        }
+        
         // Rakam sayısını kontrol et
-        final digitCount = phoneMaskFormatter.getUnmaskedText().length;
-        if (digitCount < 10) {
+        if (unmaskedText.length < 10) {
           return 'Telefon numarası eksik';
         }
+        
         return null;
       },
     );
@@ -476,7 +677,7 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildRememberForgotRow() {
+  Widget _buildRememberMeForgotPassword() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -511,34 +712,11 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         TextButton(
           onPressed: () {
+            // Basitleştirilmiş sayfa geçişi
             Navigator.push(
               context,
-              PageRouteBuilder(
-                pageBuilder:
-                    (context, animation, secondaryAnimation) =>
-                        const ForgotPasswordScreen(),
-                transitionsBuilder: (
-                  context,
-                  animation,
-                  secondaryAnimation,
-                  child,
-                ) {
-                  const begin = Offset(1.0, 0.0);
-                  const end = Offset.zero;
-                  const curve = Curves.easeInOut;
-
-                  var tween = Tween(
-                    begin: begin,
-                    end: end,
-                  ).chain(CurveTween(curve: curve));
-                  var offsetAnimation = animation.drive(tween);
-
-                  return SlideTransition(
-                    position: offsetAnimation,
-                    child: child,
-                  );
-                },
-                transitionDuration: const Duration(milliseconds: 300),
+              MaterialPageRoute(
+                builder: (context) => const ForgotPasswordScreen(),
               ),
             );
           },
@@ -607,6 +785,25 @@ class _LoginScreenState extends State<LoginScreen>
               ),
     );
   }
+  
+  Widget _buildBiometricLoginButton() {
+    return ElevatedButton.icon(
+      onPressed: _isLoading ? null : _loginWithBiometrics,
+      icon: const Icon(Icons.fingerprint, size: 24),
+      label: const Text(
+        'Biyometrik Kimlik ile Giriş',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.blue.shade600,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        elevation: 2,
+        shadowColor: Colors.blue.withOpacity(0.5),
+      ),
+    );
+  }
 
   Widget _buildRegisterRow() {
     return Row(
@@ -618,34 +815,11 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         TextButton(
           onPressed: () {
+            // Basitleştirilmiş sayfa geçişi
             Navigator.push(
               context,
-              PageRouteBuilder(
-                pageBuilder:
-                    (context, animation, secondaryAnimation) =>
-                        const RegisterScreen(),
-                transitionsBuilder: (
-                  context,
-                  animation,
-                  secondaryAnimation,
-                  child,
-                ) {
-                  const begin = Offset(1.0, 0.0);
-                  const end = Offset.zero;
-                  const curve = Curves.easeInOut;
-
-                  var tween = Tween(
-                    begin: begin,
-                    end: end,
-                  ).chain(CurveTween(curve: curve));
-                  var offsetAnimation = animation.drive(tween);
-
-                  return SlideTransition(
-                    position: offsetAnimation,
-                    child: child,
-                  );
-                },
-                transitionDuration: const Duration(milliseconds: 300),
+              MaterialPageRoute(
+                builder: (context) => const RegisterScreen(),
               ),
             );
           },
@@ -660,5 +834,107 @@ class _LoginScreenState extends State<LoginScreen>
         ),
       ],
     );
+  }
+
+  // Biyometrik girişi otomatik başlat
+  Future<void> _checkAndStartBiometricLogin() async {
+    if (_isInitialized && _hasRefreshToken && _canUseBiometrics && !_isLoading && mounted) {
+      debugPrint('Biyometrik giriş otomatik olarak başlatılıyor...');
+      await _loginWithBiometrics();
+    }
+  }
+
+  // Refresh token varsa ve biyometrik kimlik doğrulama etkinse otomatik olarak biyometrik giriş için hazırlık yap
+  Future<void> _prepareAutoBiometricLogin() async {
+    if (!mounted) return;
+    
+    debugPrint('Biyometrik giriş hazırlığı yapılıyor...');
+    debugPrint('Refresh token var mı: $_hasRefreshToken');
+    debugPrint('Biyometrik doğrulama kullanılabilir mi: $_canUseBiometrics');
+    
+    // Hem refresh token hem de biyometrik doğrulama mevcutsa, 
+    // ekran yüklendikten sonra biyometrik doğrulama penceresini göster
+    if (_hasRefreshToken && _canUseBiometrics) {
+      debugPrint('Biyometrik giriş için gerekli koşullar sağlanıyor. Biyometrik prompt gösterilecek...');
+      
+      // Biraz bekleyelim, UI'ın tam yüklenmesi için
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      if (mounted) {
+        // Biyometrik deneme sayacını sıfırla
+        _biometricAttempts = 0;
+        _showBiometricPrompt();
+      }
+    } else {
+      debugPrint('Biyometrik giriş için gerekli koşullar sağlanmıyor.');
+    }
+  }
+  
+  // Biyometrik kimlik doğrulama penceresini göster
+  Future<void> _showBiometricPrompt() async {
+    if (!mounted) return;
+    
+    debugPrint('Biyometrik kimlik doğrulama penceresi gösteriliyor... Deneme: ${_biometricAttempts + 1}/$_maxBiometricAttempts');
+    
+    // Biyometrik giriş başlat
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+
+      final success = await _authService.loginWithBiometrics();
+      
+      if (success) {
+        // Başarılı giriş, ana sayfaya yönlendir
+        debugPrint('Biyometrik giriş başarılı, ana sayfaya yönlendiriliyor...');
+        if (mounted) {
+          _navigateToHome();
+        }
+      } else {
+        // Başarısız biyometrik giriş, hata mesajı göster
+        debugPrint('Biyometrik giriş başarısız oldu. Deneme: ${_biometricAttempts + 1}');
+        if (mounted) {
+          setState(() {
+            _biometricAttempts++;
+            _isLoading = false;
+            
+            if (_biometricAttempts >= _maxBiometricAttempts) {
+              _errorMessage = 'Maksimum deneme sayısına ulaşıldı. Lütfen bilgilerinizle giriş yapın.';
+            } else {
+              _errorMessage = 'Biyometrik giriş başarısız oldu. Kalan deneme: ${_maxBiometricAttempts - _biometricAttempts}';
+              
+              // Henüz deneme hakkı varsa, kısa bir süre sonra tekrar dene
+              Future.delayed(const Duration(seconds: 1), () {
+                if (_biometricAttempts < _maxBiometricAttempts && mounted) {
+                  _showBiometricPrompt();
+                }
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Biyometrik giriş hatası: $e');
+      if (mounted) {
+        setState(() {
+          _biometricAttempts++;
+          _isLoading = false;
+          
+          if (_biometricAttempts >= _maxBiometricAttempts) {
+            _errorMessage = 'Maksimum deneme sayısına ulaşıldı. Lütfen bilgilerinizle giriş yapın.';
+          } else {
+            _errorMessage = 'Biyometrik giriş hatası. Kalan deneme: ${_maxBiometricAttempts - _biometricAttempts}';
+            
+            // Henüz deneme hakkı varsa, kısa bir süre sonra tekrar dene
+            Future.delayed(const Duration(seconds: 1), () {
+              if (_biometricAttempts < _maxBiometricAttempts && mounted) {
+                _showBiometricPrompt();
+              }
+            });
+          }
+        });
+      }
+    }
   }
 }
