@@ -6,7 +6,7 @@ class ApiService {
   late Dio _dio;
   
   // API endpoint'i
-  static const String baseUrl = 'http://192.168.18.61:8080/v1/api';
+  static const String baseUrl = 'http://192.168.174.214:8080/v1/api';
   
   // Singleton pattern
   static final ApiService _instance = ApiService._internal();
@@ -22,8 +22,8 @@ class ApiService {
   void _initializeDio() {
     _dio = Dio(BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
       contentType: 'application/json',
       responseType: ResponseType.json,
     ));
@@ -73,8 +73,8 @@ class ApiService {
     // Yeni bir Dio instance'ı oluştur (interceptor'sız)
     final loginDio = Dio(BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
       contentType: 'application/json',
       responseType: ResponseType.json,
     ));

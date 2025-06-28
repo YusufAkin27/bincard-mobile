@@ -239,21 +239,17 @@ class _LoginScreenState extends State<LoginScreen>
 
         // Auth servisi ile giriş yapma
         debugPrint('Giriş işlemi başlatılıyor. Telefon: $phoneNumber');
-        final response = await _authService.login(phoneNumber, password);
-        debugPrint('Giriş yanıtı alındı: başarılı=${response.success}, mesaj=${response.message}');
-
-        if (response.success) {
+        try {
+          final response = await _authService.login(phoneNumber, password);
+          debugPrint('Giriş yanıtı alındı: accessToken=${response.accessToken.token}');
           // Başarılı giriş - ana sayfaya yönlendir
           debugPrint('Giriş başarılı, ana sayfaya yönlendiriliyor...');
           if (!mounted) return;
           _navigateToHome();
-        } else {
-          // Hata durumu
-          debugPrint('Giriş başarısız: ${response.message}');
+        } catch (e) {
+          debugPrint('Giriş başarısız: $e');
           setState(() {
-            _errorMessage =
-                response.message ??
-                'Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.';
+            _errorMessage = e.toString().replaceFirst('Exception: ', '');
           });
         }
       } catch (e) {

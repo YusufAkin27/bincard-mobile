@@ -21,23 +21,20 @@ class AuthService {
   final BiometricService _biometricService = BiometricService();
   
   // API Endpoint
-  static const String baseUrl = 'http://192.168.18.61:8080/v1/api';
+  static const String baseUrl = 'http://192.168.174.214:8080/v1/api';
 
   // SharedPreferences Keys
   static const String tokenKey = 'auth_token';
   static const String refreshTokenKey = 'refresh_token';
   static const String userKey = 'user_data';
 
-  // Kullanıcı adı ve şifre ile giriş
-  Future<AuthResponse> login(String phone, String password) async {
+  // Kullanıcı adı ve şifre ile giriş (YENİ BACKEND)
+  Future<TokenResponseDTO> login(String phone, String password) async {
     try {
       debugPrint('Login isteği gönderiliyor: $phone');
-      
-      // Cihaz ve IP bilgilerini al
       final deviceInfo = await getDeviceInfo();
       final ipAddress = await getIpAddress();
-      
-      // Login isteği için özel Dio instance'ı kullan (token interceptor olmadan)
+
       final response = await _apiService.post(
         '/auth/login',
         data: {
@@ -46,79 +43,38 @@ class AuthService {
           'deviceInfo': deviceInfo,
           'ipAddress': ipAddress,
         },
-        useLoginDio: true, // Token interceptor olmadan kullan
+        useLoginDio: true,
       );
-      
+
       if (response.statusCode == 200 && response.data != null) {
-        debugPrint('Login başarılı, yanıt: ${response.data}');
-        
-        try {
-          // Yanıt formatını detaylı logla
-          debugPrint('Login yanıt yapısı: ${response.data.runtimeType} - ${response.data.toString().substring(0, Math.min(100, response.data.toString().length))}...');
-          
-          // Yanıt formatını daha detaylı logla
-          if (response.data is Map<String, dynamic>) {
-            debugPrint('Yanıt bir Map: ${response.data.keys.join(', ')}');
-          } else if (response.data is String) {
-            debugPrint('Yanıt bir String: ${response.data.length} karakter');
-          } else {
-            debugPrint('Yanıt tipi: ${response.data.runtimeType}');
-          }
-          
-          // TokenResponseDTO'ya dönüştür
-          TokenResponseDTO tokenResponse;
-          
-          try {
-            tokenResponse = TokenResponseDTO.fromJson(response.data);
-            debugPrint('Standart format başarıyla işlendi');
-          } catch (e) {
-            debugPrint('Standart format işlenemedi, basit format deneniyor: $e');
-            tokenResponse = TokenResponseDTO.fromSimpleJson(response.data);
-            debugPrint('Basit format başarıyla işlendi');
-          }
-          
-          // Token bilgilerini logla
-          debugPrint('Access Token: ${tokenResponse.accessToken.token.substring(0, Math.min(10, tokenResponse.accessToken.token.length))}...');
-          debugPrint('Access Token Süresi: ${tokenResponse.accessToken.expiredAt}');
-          debugPrint('Refresh Token: ${tokenResponse.refreshToken.token.substring(0, Math.min(10, tokenResponse.refreshToken.token.length))}...');
-          debugPrint('Refresh Token Süresi: ${tokenResponse.refreshToken.expiredAt}');
-          
-          // Token'ları güvenli depolamaya kaydet
-          await _secureStorage.setAccessToken(tokenResponse.accessToken.token);
-          await _secureStorage.setRefreshToken(tokenResponse.refreshToken.token);
-          
-          // Token süre bilgilerini kaydet
-          await _secureStorage.setAccessTokenExpiry(tokenResponse.accessToken.expiredAt.toIso8601String());
-          await _secureStorage.setRefreshTokenExpiry(tokenResponse.refreshToken.expiredAt.toIso8601String());
-          
-          // Token interceptor'ı etkinleştir (login sonrası)
-          _apiService.setupTokenInterceptor();
-          debugPrint('Token interceptor başarıyla etkinleştirildi');
-          
-          // Kullanıcıya biyometrik doğrulama kullanmak isteyip istemediğini sor
-          await _askForBiometricPermission();
-          
-          // Başarılı yanıt döndür
-          return AuthResponse.success('Giriş başarılı');
-        } catch (e) {
-          debugPrint('Token işleme hatası: $e');
-          return AuthResponse.error('Token işlenirken bir hata oluştu: $e');
+        // accessToken veya refreshToken yoksa hata mesajı göster
+        if (response.data['accessToken'] == null || response.data['refreshToken'] == null) {
+          final message = response.data['message'] ?? 'Giriş başarısız oldu.';
+          throw Exception(message);
         }
+        final tokenResponse = TokenResponseDTO.fromJson(response.data);
+        // Token'ları güvenli depolamaya kaydet
+        await _secureStorage.setAccessToken(tokenResponse.accessToken.token);
+        await _secureStorage.setRefreshToken(tokenResponse.refreshToken.token);
+        await _secureStorage.setAccessTokenExpiry(tokenResponse.accessToken.expiredAt.toIso8601String());
+        await _secureStorage.setRefreshTokenExpiry(tokenResponse.refreshToken.expiredAt.toIso8601String());
+        // Token interceptor'ı etkinleştir
+        _apiService.setupTokenInterceptor();
+        // Biyometrik izin sor
+        await _askForBiometricPermission();
+        return tokenResponse;
       } else {
-        // Başarısız yanıt
         final message = response.data?['message'] ?? 'Giriş başarısız oldu.';
         debugPrint('Login başarısız: $message');
-        return AuthResponse.error(message);
+        throw Exception(message);
       }
     } on DioException catch (e) {
-      debugPrint('Login DioException: ${e.message}');
-      debugPrint('Response data: ${e.response?.data}');
-      return AuthResponse.error(
-        e.response?.data?['message'] ?? 'Giriş başarısız oldu',
-      );
+      debugPrint('Login DioException: \\${e.message}');
+      debugPrint('Response data: \\${e.response?.data}');
+      throw Exception(e.response?.data?['message'] ?? 'Giriş başarısız oldu');
     } catch (e) {
       debugPrint('Login beklenmeyen hata: $e');
-      return AuthResponse.error('Beklenmeyen bir hata oluştu: $e');
+      throw Exception('Beklenmeyen bir hata oluştu: $e');
     }
   }
 
@@ -498,26 +454,30 @@ class AuthService {
     }
   }
 
-  // Telefon numarası doğrulama kodu kontrolü
-  Future<ResponseMessage> verifyPhoneNumber(String code) async {
+  // Telefon numarası doğrulama kodu kontrolü (TokenResponseDTO ile)
+  Future<String> verifyPhoneNumber(String code) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/user/verify-phone'),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {'code': code},
-      ).timeout(const Duration(seconds: 15));
+      final response = await _apiService.post(
+        '/user/verify/phone',
+        data: {'code': code},
+        useLoginDio: true,
+      );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = jsonDecode(response.body);
-        return ResponseMessage.fromJson(data);
+      if (response.statusCode == 200 && response.data != null) {
+        if (response.data['success'] == true) {
+          return response.data['message'] ?? 'Telefon numaranız başarıyla doğrulandı!';
+        } else {
+          final message = response.data['message'] ?? 'Doğrulama başarısız oldu.';
+          throw Exception(message);
+        }
       } else {
-        final Map<String, dynamic> errorData = jsonDecode(response.body);
-        return ResponseMessage.error(
-          errorData['message'] ?? 'Doğrulama başarısız. Lütfen tekrar deneyin.',
-        );
+        final message = response.data?['message'] ?? 'Doğrulama başarısız oldu.';
+        throw Exception(message);
       }
+    } on DioException catch (e) {
+      throw Exception(e.response?.data?['message'] ?? 'Bağlantı hatası');
     } catch (e) {
-      return ResponseMessage.error('Bağlantı hatası: $e');
+      throw Exception('Beklenmeyen bir hata oluştu: $e');
     }
   }
 

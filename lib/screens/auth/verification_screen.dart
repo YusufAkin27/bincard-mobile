@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
+import '../../services/secure_storage_service.dart';
+import '../../services/api_service.dart';
 import 'login_screen.dart';
 import 'reset_password_screen.dart';
 
@@ -27,6 +29,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
   final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
   final _authService = AuthService();
   final _userService = UserService();
+  final _secureStorage = SecureStorageService();
+  final _apiService = ApiService();
   
   // Tüm kutularda rakam olup olmadığını kontrol eden değişken
   bool _isCodeComplete = false;
@@ -135,45 +139,36 @@ class _VerificationScreenState extends State<VerificationScreen> {
     });
 
     try {
-      // UserService kullanarak doğrulama yap
-      final response = await _userService.verifyPhoneNumber(code);
-
-      if (response.success) {
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message ?? 'Telefon numaranız doğrulandı!'),
-            backgroundColor: Colors.green,
+      final message = await _authService.verifyPhoneNumber(code);
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+        ),
+      );
+      if (widget.isPasswordReset) {
+        Navigator.pushReplacement(
+          context, 
+          MaterialPageRoute(
+            builder: (context) => ResetPasswordScreen(
+              phoneNumber: widget.phoneNumber,
+            ),
           ),
         );
-
-        // Şifre sıfırlama için mi yoksa normal kayıt için mi?
-        if (widget.isPasswordReset) {
-          Navigator.pushReplacement(
-            context, 
-            MaterialPageRoute(
-              builder: (context) => ResetPasswordScreen(
-                phoneNumber: widget.phoneNumber,
-              ),
-            ),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context, 
-            MaterialPageRoute(builder: (context) => const LoginScreen())
-          );
-        }
       } else {
-        setState(() {
-          _errorMessage = response.message ?? 'Doğrulama başarısız oldu.';
-          _isCodeComplete = false; // Hata durumunda tamamlanma durumunu sıfırla
-        });
+        Navigator.pushReplacement(
+          context, 
+          MaterialPageRoute(builder: (context) => const LoginScreen())
+        );
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Beklenmeyen bir hata oluştu: $e';
-        _isCodeComplete = false; // Hata durumunda tamamlanma durumunu sıfırla
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _isCodeComplete = false;
       });
     } finally {
       if (mounted) {

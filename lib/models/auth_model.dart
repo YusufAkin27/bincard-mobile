@@ -127,12 +127,17 @@ class TokenDTO {
     }
     
     if (json is! Map<String, dynamic>) {
-      throw Exception('Invalid token format: Expected Map<String, dynamic> but got ${json.runtimeType}');
+      throw Exception('Invalid token format: Expected Map<String, dynamic> but got \\${json.runtimeType}');
     }
     
+    final token = json['token'];
+    final expiredAt = json['expiredAt'] ?? json['expiresAt'];
+    if (token == null || expiredAt == null) {
+      throw Exception('TokenDTO parse error: token or expiredAt/expiresAt is null! Backend response: \\${json.toString()}');
+    }
     return TokenDTO(
-      token: json['token'] as String,
-      expiredAt: DateTime.parse(json['expiredAt'] as String),
+      token: token as String,
+      expiredAt: DateTime.parse(expiredAt as String),
     );
   }
   
@@ -146,12 +151,16 @@ class TokenDTO {
     }
     
     if (json is! Map<String, dynamic>) {
-      throw Exception('Invalid token format: Expected Map<String, dynamic> but got ${json.runtimeType}');
+      throw Exception('Invalid token format: Expected Map<String, dynamic> but got \\${json.runtimeType}');
     }
-    
+    final token = json['token'];
+    final expiredAt = json['expiredAt'] ?? json['expiresAt'];
+    if (token == null || expiredAt == null) {
+      throw Exception('TokenDTO simple parse error: token or expiredAt/expiresAt is null! Backend response: \\${json.toString()}');
+    }
     return TokenDTO(
-      token: json['token'] as String,
-      expiredAt: DateTime.parse(json['expiredAt'] as String),
+      token: token as String,
+      expiredAt: DateTime.parse(expiredAt as String),
     );
   }
 
@@ -191,13 +200,21 @@ class TokenResponseDTO {
 
   factory TokenResponseDTO.fromJson(dynamic json) {
     if (json is! Map<String, dynamic>) {
-      throw Exception('Invalid token response format: Expected Map<String, dynamic> but got ${json.runtimeType}');
+      throw Exception('Invalid token response format: Expected Map<String, dynamic> but got \\${json.runtimeType}');
     }
-    
     try {
+      // accessToken ve refreshToken string olarak gelirse de işle
+      final accessTokenRaw = json['accessToken'];
+      final refreshTokenRaw = json['refreshToken'];
+      final accessToken = accessTokenRaw is String
+          ? TokenDTO.fromSimpleJson({'token': accessTokenRaw, 'expiredAt': DateTime.now().add(const Duration(hours: 1)).toIso8601String()})
+          : TokenDTO.fromJson(accessTokenRaw);
+      final refreshToken = refreshTokenRaw is String
+          ? TokenDTO.fromSimpleJson({'token': refreshTokenRaw, 'expiredAt': DateTime.now().add(const Duration(hours: 1)).toIso8601String()})
+          : TokenDTO.fromJson(refreshTokenRaw);
       return TokenResponseDTO(
-        accessToken: TokenDTO.fromJson(json['accessToken'] as Map<String, dynamic>),
-        refreshToken: TokenDTO.fromJson(json['refreshToken'] as Map<String, dynamic>),
+        accessToken: accessToken,
+        refreshToken: refreshToken,
       );
     } catch (e) {
       // Alternatif format deneme

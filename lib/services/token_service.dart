@@ -15,7 +15,7 @@ class TokenService {
   final Dio _dio = Dio();
   
   // API endpoint'leri
-  static const String baseUrl = 'http://192.168.18.61:8080/v1/api'; // API URL'nizi buraya girin
+  static const String baseUrl = 'http://192.168.174.214:8080/v1/api'; // API URL'nizi buraya girin
   static const String refreshEndpoint = '/auth/refresh';
   
   // Otomatik token yenileme için threshold (saniye)
@@ -607,5 +607,65 @@ class TokenService {
   // Tokenleri temizle (çıkış yapma durumunda)
   Future<void> clearTokens() async {
     await _secureStorage.clearTokens();
+  }
+
+  /// Access token'ın süresi dolmasına 1 dakika kala otomatik yenileme
+  Future<void> refreshAccessTokenIfNeeded() async {
+    final expiryStr = await _secureStorage.getAccessTokenExpiry();
+    if (expiryStr == null) return;
+
+    final expiry = DateTime.parse(expiryStr);
+    final now = DateTime.now();
+    final difference = expiry.difference(now);
+
+    if (difference.inSeconds < 60) { // 1 dakika kala
+      final refreshToken = await _secureStorage.getRefreshToken();
+      if (refreshToken == null) return;
+
+      try {
+        final response = await Dio().post(
+          '$baseUrl/auth/refresh',
+          data: {'refreshToken': refreshToken},
+          options: Options(headers: {'Content-Type': 'application/json'}),
+        );
+
+        if (response.statusCode == 200 && response.data != null) {
+          final newAccessToken = response.data['token'];
+          final newExpiresAt = response.data['expiresAt'];
+          if (newAccessToken != null && newExpiresAt != null) {
+            await _secureStorage.setAccessToken(newAccessToken);
+            await _secureStorage.setAccessTokenExpiry(newExpiresAt);
+            debugPrint('Yeni access token otomatik olarak kaydedildi.');
+          }
+        }
+      } catch (e) {
+        debugPrint('Access token otomatik yenileme hatası: $e');
+      }
+    }
+  }
+
+  /// Sade http ile access token yenileme fonksiyonu
+  Future<void> refreshAccessTokenSimple() async {
+    final refreshToken = await _secureStorage.getRefreshToken();
+    if (refreshToken == null) return;
+
+    final response = await http.post(
+      Uri.parse('http://localhost:8080/v1/api/auth/refresh'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        "refreshToken": refreshToken,
+        "ipAddress": "192.168.1.20", // opsiyonel
+        "deviceInfo": "Xiaomi Redmi Note 11", // opsiyonel
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      await _secureStorage.setAccessToken(data['token']);
+      await _secureStorage.setAccessTokenExpiry(data['expiresAt']);
+      // Eğer başka alanlar da geliyorsa burada kaydedebilirsin
+    } else {
+      print("Token yenileme başarısız: \\${response.body}");
+    }
   }
 } 
