@@ -15,7 +15,7 @@ class TokenService {
   final Dio _dio = Dio();
   
   // API endpoint'leri
-  static const String baseUrl = 'http://192.168.174.214:8080/v1/api'; // API URL'nizi buraya girin
+  static const String baseUrl = 'http://192.168.219.61:8080/v1/api'; // API URL'nizi buraya girin
   static const String refreshEndpoint = '/auth/refresh';
   
   // Otomatik token yenileme için threshold (saniye)
@@ -92,25 +92,12 @@ class TokenService {
         
         if (now.isAfter(expiry)) {
           debugPrint('Refresh token süresi dolmuş, yenileme yapılamıyor');
+          _navigateToLogin();
           return false;
         }
       }
 
-      // Cihaz ve IP bilgilerini al
-      String deviceInfo = "Flutter App";
-      String ipAddress = "127.0.0.1";
-      
-      try {
-        deviceInfo = await _getDeviceInfo();
-        ipAddress = await _getIpAddress();
-      } catch (e) {
-        debugPrint('Cihaz veya IP bilgisi alınamadı: $e');
-      }
-
       debugPrint('Token yenileme isteği hazırlanıyor...');
-      debugPrint('RefreshToken: ${refreshToken.substring(0, Math.min(20, refreshToken.length))}...');
-      debugPrint('Cihaz bilgisi: $deviceInfo');
-      debugPrint('IP adresi: $ipAddress');
       
       final options = Options(
         headers: {
@@ -121,17 +108,15 @@ class TokenService {
         },
       );
       
-      // UpdateAccessTokenRequestDTO sınıfını kullanarak isteği hazırla
-      final requestDto = UpdateAccessTokenRequestDTO(
-        refreshToken: refreshToken.split(".")[0] + "." + refreshToken.split(".")[1] + "." + refreshToken.split(".")[2], // Sadece JWT token kısmını al (tarih kısmını ayır)
-        deviceInfo: deviceInfo,
-        ipAddress: ipAddress,
-      );
+      // Yeni API yapısına göre request body hazırla
+      final requestBody = {
+        'refreshToken': refreshToken
+      };
       
       // Token yenileme isteği
       final response = await _dio.post(
         '$baseUrl/auth/refresh',
-        data: requestDto.toJson(),
+        data: requestBody,
         options: options,
       );
 
@@ -141,56 +126,20 @@ class TokenService {
         debugPrint('Token yenileme başarılı, yanıt: ${response.data}');
         
         try {
-          // Yanıt formatını detaylı logla
-          debugPrint('Token yanıt yapısı: ${response.data.runtimeType} - ${response.data.toString().substring(0, Math.min(100, response.data.toString().length))}...');
+          // Yeni API formatına göre yanıtı işle
+          final accessToken = TokenDTO(
+            token: response.data['token'],
+            expiredAt: DateTime.parse(response.data['expiresAt']),
+          );
           
-          // Farklı formatlara göre yanıtı işle
-          TokenResponseDTO tokenResponse;
+          debugPrint('Alınan Access Token: ${accessToken.token.substring(0, Math.min(20, accessToken.token.length))}...');
+          debugPrint('Alınan Access Token Süresi: ${accessToken.expiredAt}');
           
-          try {
-            // Yanıt formatını daha detaylı logla
-            if (response.data is Map<String, dynamic>) {
-              debugPrint('Yanıt bir Map: ${response.data.keys.join(', ')}');
-            } else if (response.data is String) {
-              debugPrint('Yanıt bir String: ${response.data.length} karakter');
-            } else {
-              debugPrint('Yanıt tipi: ${response.data.runtimeType}');
-            }
-            
-            // Önce standart formatta almayı dene
-            tokenResponse = TokenResponseDTO.fromJson(response.data);
-            debugPrint('Standart format başarıyla işlendi');
-          } catch (e) {
-            debugPrint('Standart format işlenemedi, basit format deneniyor: $e');
-            // Basit formatta yanıt almayı dene
-            tokenResponse = TokenResponseDTO.fromSimpleJson(response.data);
-            debugPrint('Basit format başarıyla işlendi');
-          }
+          // Yeni access token'ı kaydet
+          await _secureStorage.setAccessToken(accessToken.token);
+          await _secureStorage.setAccessTokenExpiry(accessToken.expiredAt.toIso8601String());
           
-          debugPrint('Alınan Access Token: ${tokenResponse.accessToken.token.substring(0, Math.min(20, tokenResponse.accessToken.token.length))}...');
-          debugPrint('Alınan Access Token Süresi: ${tokenResponse.accessToken.expiredAt}');
-          
-          // Refresh token varsa logla
-          if (tokenResponse.refreshToken != tokenResponse.accessToken) {
-            debugPrint('Alınan Refresh Token: ${tokenResponse.refreshToken.token.substring(0, Math.min(20, tokenResponse.refreshToken.token.length))}...');
-            debugPrint('Alınan Refresh Token Süresi: ${tokenResponse.refreshToken.expiredAt}');
-          } else {
-            debugPrint('Refresh token alınmadı, sadece access token alındı');
-          }
-          
-          // Yeni token'ları kaydet
-          await _secureStorage.setAccessToken(tokenResponse.accessToken.token);
-          
-          // Refresh token sadece yeni gelirse güncelle
-          if (tokenResponse.refreshToken != tokenResponse.accessToken) {
-            await _secureStorage.setRefreshToken(tokenResponse.refreshToken.token);
-            await _secureStorage.setRefreshTokenExpiry(tokenResponse.refreshToken.expiredAt.toIso8601String());
-          }
-          
-          // Token süre bilgilerini kaydet
-          await _secureStorage.setAccessTokenExpiry(tokenResponse.accessToken.expiredAt.toIso8601String());
-          
-          debugPrint('Token başarıyla yenilendi, süresi: ${tokenResponse.accessToken.expiredAt}');
+          debugPrint('Token başarıyla yenilendi, süresi: ${accessToken.expiredAt}');
           return true;
         } catch (e) {
           debugPrint('Token yanıtını işlerken hata: $e');
@@ -205,12 +154,8 @@ class TokenService {
         debugPrint('Yanıt: $responseData');
         
         // Token bulunamadı hatası veya 401/403 için tüm tokenları temizle ve login sayfasına yönlendir
-        final responseStr = responseData.toString().toLowerCase();
-        if (statusCode == 401 || statusCode == 403 || 
-            responseStr.contains('token bulunamadı') || 
-            responseStr.contains('expired') || 
-            responseStr.contains('süresi dolmuş')) {
-          debugPrint('Yetkilendirme hatası veya token bulunamadı, tokenlar temizleniyor...');
+        if (statusCode == 401 || statusCode == 403) {
+          debugPrint('Yetkilendirme hatası, tokenlar temizleniyor...');
           await _secureStorage.clearTokens();
           
           // Login sayfasına yönlendir
@@ -225,13 +170,9 @@ class TokenService {
         debugPrint('Durum kodu: ${e.response?.statusCode}');
         debugPrint('Yanıt: ${e.response?.data}');
         
-        // 401 veya 403 hata kodları veya token bulunamadı için tokenları temizleyelim
-        final responseStr = e.response?.data.toString().toLowerCase() ?? '';
-        if (e.response?.statusCode == 401 || e.response?.statusCode == 403 || 
-            responseStr.contains('token bulunamadı') || 
-            responseStr.contains('expired') || 
-            responseStr.contains('süresi dolmuş')) {
-          debugPrint('Yetkilendirme hatası veya token bulunamadı, tokenlar temizleniyor...');
+        // 401 veya 403 hata kodları için tokenları temizleyelim
+        if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+          debugPrint('Yetkilendirme hatası, tokenlar temizleniyor...');
           await _secureStorage.clearTokens();
           
           // Login sayfasına yönlendir
@@ -274,8 +215,8 @@ class TokenService {
         
         debugPrint('Access token süresinin dolmasına $remainingSeconds saniye kaldı');
         
-        // Eğer kalan süre threshold'dan azsa, token'ı yenilememiz gerekiyor
-        return remainingSeconds <= _tokenRenewalThreshold;
+        // Eğer kalan süre 30 saniyeden azsa, token'ı yenilememiz gerekiyor
+        return remainingSeconds <= 30;
       } catch (e) {
         debugPrint('JWT token decode hatası: $e');
         return true; // Hata durumunda güvenli tarafta kal ve yenileme yap
@@ -649,13 +590,24 @@ class TokenService {
     final refreshToken = await _secureStorage.getRefreshToken();
     if (refreshToken == null) return;
 
+    // Refresh token'ın süresi dolmuş mu kontrol et
+    final refreshTokenExpiry = await _secureStorage.getRefreshTokenExpiry();
+    if (refreshTokenExpiry != null) {
+      final expiry = DateTime.parse(refreshTokenExpiry);
+      final now = DateTime.now();
+      
+      if (now.isAfter(expiry)) {
+        debugPrint('Refresh token süresi dolmuş, yenileme yapılamıyor');
+        _navigateToLogin();
+        return;
+      }
+    }
+
     final response = await http.post(
-      Uri.parse('http://localhost:8080/v1/api/auth/refresh'),
+      Uri.parse('$baseUrl/auth/refresh'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        "refreshToken": refreshToken,
-        "ipAddress": "192.168.1.20", // opsiyonel
-        "deviceInfo": "Xiaomi Redmi Note 11", // opsiyonel
+        "refreshToken": refreshToken
       }),
     );
 
@@ -663,9 +615,18 @@ class TokenService {
       final data = jsonDecode(response.body);
       await _secureStorage.setAccessToken(data['token']);
       await _secureStorage.setAccessTokenExpiry(data['expiresAt']);
-      // Eğer başka alanlar da geliyorsa burada kaydedebilirsin
+      debugPrint('Access token başarıyla yenilendi');
     } else {
-      print("Token yenileme başarısız: \\${response.body}");
+      debugPrint("Token yenileme başarısız: ${response.body}");
+      
+      // 401 veya 403 hata kodları için tokenları temizleyelim
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        debugPrint('Yetkilendirme hatası, tokenlar temizleniyor...');
+        await _secureStorage.clearTokens();
+        
+        // Login sayfasına yönlendir
+        _navigateToLogin();
+      }
     }
   }
 } 
